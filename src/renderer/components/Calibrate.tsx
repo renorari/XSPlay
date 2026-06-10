@@ -6,7 +6,6 @@ export default function Calibrate() {
     connected,
     imuRaw,
     euler,
-    transform,
     config,
     connect,
     disconnect,
@@ -14,11 +13,26 @@ export default function Calibrate() {
     updateConfig,
   } = useIMU();
   const [history, setHistory] = useState<{ yaw: number; pitch: number; roll: number }[]>([]);
+  const previewRef = useRef<HTMLDivElement>(null);
+  const historyRef = useRef<{ yaw: number; pitch: number; roll: number }[]>([]);
 
+  // Update preview block directly via DOM
+  useEffect(() => {
+    const el = previewRef.current;
+    if (!el) return;
+    const tx = -euler.yaw * config.yawScale;
+    const ty = -euler.pitch * config.pitchScale;
+    const tr = -euler.roll * (180 / Math.PI) * (config.rollScale > 0 ? config.rollScale / 30 : 0);
+    const clamp = (v: number, limit: number) => Math.max(-limit, Math.min(limit, v));
+    el.style.transform = `translate(${clamp(tx, 80).toFixed(1)}px, ${clamp(ty, 60).toFixed(1)}px) rotate(${tr.toFixed(1)}deg)`;
+  }, [euler, config]);
+
+  // Throttled history update
   useEffect(() => {
     const interval = setInterval(() => {
-      setHistory((prev) => [...prev.slice(-100), { ...euler }]);
-    }, 50);
+      historyRef.current = [...historyRef.current.slice(-100), { ...euler }];
+      setHistory(historyRef.current);
+    }, 100);
     return () => clearInterval(interval);
   }, [euler]);
 
@@ -129,9 +143,13 @@ export default function Calibrate() {
           <div style={styles.section}>
             <h3 style={styles.sectionTitle}>Preview Transform</h3>
             <div style={styles.previewBox}>
-              <div style={{ ...styles.previewBlock, transform }} />
+              <div ref={previewRef} style={styles.previewBlock} />
             </div>
-            <p style={styles.mono}>{transform}</p>
+            <p style={styles.mono}>
+              Y{(euler.yaw * (180 / Math.PI)).toFixed(1)}°{" "}
+              P{(euler.pitch * (180 / Math.PI)).toFixed(1)}°{" "}
+              R{(euler.roll * (180 / Math.PI)).toFixed(1)}°
+            </p>
           </div>
 
           {/* History graph */}

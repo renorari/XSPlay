@@ -3,14 +3,12 @@ import { useIMU } from "../hooks/useIMU";
 
 export default function Player() {
   const videoRef = useRef<HTMLVideoElement>(null);
-  const videoStyleRef = useRef<HTMLVideoElement | null>(null);
   const [videoPath, setVideoPath] = useState<string | null>(null);
   const [showHud, setShowHud] = useState(true);
   const {
     connected,
     imuRaw,
     euler,
-    transform,
     config,
     connect,
     disconnect,
@@ -26,22 +24,13 @@ export default function Player() {
       if (videoRef.current) {
         videoRef.current.src = url;
         videoRef.current.play().catch(() => {});
-        videoStyleRef.current = videoRef.current;
       }
     }
-    // Auto-connect XREAL on player open
     connect();
     return () => {
       disconnect();
     };
   }, [connect, disconnect]);
-
-  // Apply transform directly to DOM for performance
-  useEffect(() => {
-    const el = videoStyleRef.current;
-    if (!el) return;
-    el.style.transform = transform || `scale(${config.yawScale > 0 ? 1.15 : 1})`;
-  }, [transform, config.yawScale]);
 
   // Auto-hide HUD
   const [mouseActive, setMouseActive] = useState(true);
@@ -77,14 +66,8 @@ export default function Player() {
     <div style={styles.container} onDoubleClick={togglePlay}>
       <div style={styles.videoWrapper}>
         <video
-          ref={(el) => {
-            videoRef.current = el;
-            if (el) videoStyleRef.current = el;
-          }}
-          style={{
-            ...styles.video,
-            transform: `scale(${1.15})`,
-          }}
+          ref={videoRef}
+          style={styles.video}
           muted
           loop
           playsInline
@@ -273,7 +256,7 @@ const styles: Record<string, React.CSSProperties> = {
     height: "100%",
     objectFit: "cover",
     willChange: "transform",
-    transition: "none",
+    transform: "scale(1.15)",
   },
   hud: {
     position: "absolute",

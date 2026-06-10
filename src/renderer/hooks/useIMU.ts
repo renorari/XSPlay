@@ -50,13 +50,37 @@ export function useIMU() {
   const [connected, setConnected] = useState(false);
   const [imuRaw, setImuRaw] = useState<any>(null);
   const [euler, setEuler] = useState<EulerAngles>({ yaw: 0, pitch: 0, roll: 0 });
-  const [transform, setTransform] = useState("");
   const [config, setConfig] = useState<IMUConfig>(loadIMUConfig);
 
+  // High-frequency mutable refs (no React re-renders)
   const eulerRef = useRef<EulerAngles>({ yaw: 0, pitch: 0, roll: 0 });
   const lastTsRef = useRef<bigint | null>(null);
   const lastProcessedTsRef = useRef<bigint | null>(null);
   const imuUnsubRef = useRef<(() => void) | null>(null);
+  const configRef = useRef<IMUConfig>(config);
+  const rafRef = useRef<number | null>(null);
+
+  // Throttled display update
+  const pendingDisplayRef = useRef<{ imu: any; euler: EulerAngles } | null>(null);
+  const displayTimerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Keep configRef in sync
+  useEffect(() => {
+    configRef.current = config;
+  }, [config]);
+
+  const scheduleDisplayUpdate = useCallback((imu: any, e: EulerAngles) => {
+    pendingDisplayRef.current = { imu, euler: { ...e } };
+    if (displayTimerRef.current) return;
+    displayTimerRef.current = setTimeout(() => {
+      displayTimerRef.current = null;
+      const pending = pendingDisplayRef.current;
+      if (pending) {
+        setImuRaw(pending.imu);
+        setEuler(pending.euler);
+      }
+    }, 80); // ~12fps display update
+  }, []);
 
   const connect = useCallback(async () => {
     if (connected) return true;
@@ -64,7 +88,6 @@ export function useIMU() {
     if (ok) {
       await window.electronAPI.xreal.enableIMU(true);
       imuUnsubRef.current = window.electronAPI.xreal.onIMU((data) => {
-        setImuRaw(data);
         processIMU(data);
       });
       setConnected(true);
@@ -86,7 +109,21 @@ export function useIMU() {
     lastTsRef.current = null;
     lastProcessedTsRef.current = null;
     setEuler({ yaw: 0, pitch: 0, roll: 0 });
-    setTransform("");
+    setImuRaw(null);
+  }, []);
+
+  const applyTransform = useCallback((tx: number, ty: number, tr: number, scale: number) => {
+    // Cancel previous rAF to avoid queue buildup
+    if (rafRef.current) cancelAnimationFrame(rafRef.current);
+    rafRef.current = requestAnimationFrame(() => {
+      rafRef.current = null;
+      // Apply to all video elements on the page
+      const videos = document.querySelectorAll("video");
+      const transform = `translate(${tx.toFixed(1)}px, ${ty.toFixed(1)}px) rotate(${tr.toFixed(1)}deg) scale(${scale})`;
+      videos.forEach((el) => {
+        el.style.transform = transform;
+      });
+    });
   }, []);
 
   const processIMU = useCallback((data: any) => {
@@ -97,7 +134,7 @@ export function useIMU() {
     lastProcessedTsRef.current = ts;
 
     const g = data.gyroscope;
-    const cfg = config;
+    const cfg = configRef.current;
 
     if (lastTsRef.current !== null) {
       const dt = Number(ts - lastTsRef.current) / 1e9;
@@ -128,10 +165,14 @@ export function useIMU() {
     const clamp = (v: number, limit: number) => Math.max(-limit, Math.min(limit, v));
     const ctx = clamp(tx, 120);
     const cty = clamp(ty, 90);
+    const scale = 1.15;
 
-    setEuler({ ...eulerRef.current });
-    setTransform(`translate(${ctx.toFixed(1)}px, ${cty.toFixed(1)}px) rotate(${tr.toFixed(1)}deg)`);
-  }, [config]);
+    // Apply transform immediately via rAF (no React state)
+    applyTransform(ctx, cty, tr, scale);
+
+    // Schedule throttled display update
+    scheduleDisplayUpdate(data, eulerRef.current);
+  }, [applyTransform, scheduleDisplayUpdate]);
 
   const updateConfig = useCallback((patch: Partial<IMUConfig>) => {
     setConfig((c) => {
@@ -144,6 +185,8 @@ export function useIMU() {
   useEffect(() => {
     return () => {
       if (imuUnsubRef.current) imuUnsubRef.current();
+      if (rafRef.current) cancelAnimationFrame(rafRef.current);
+      if (displayTimerRef.current) clearTimeout(displayTimerRef.current);
     };
   }, []);
 
@@ -151,7 +194,6 @@ export function useIMU() {
     connected,
     imuRaw,
     euler,
-    transform,
     config,
     connect,
     disconnect,
