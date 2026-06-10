@@ -1,6 +1,8 @@
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
+import Calibrate from "./Calibrate";
 
 export default function Control() {
+  const [showMonitor, setShowMonitor] = useState(false);
   const [connected, setConnected] = useState(false);
   const [displayMode, setDisplayMode] = useState<number | null>(null);
   const [videoPath, setVideoPath] = useState<string | null>(null);
@@ -85,14 +87,26 @@ export default function Control() {
     };
   }, []);
 
+  if (showMonitor) {
+    return (
+      <div>
+        <Calibrate />
+        <button
+          style={{ ...styles.linkBtn, margin: 20 }}
+          onClick={() => setShowMonitor(false)}
+        >
+          ← Back to Control
+        </button>
+      </div>
+    );
+  }
+
   return (
     <div style={styles.container}>
       <h1 style={styles.title}>XSPlay</h1>
 
-      {/* Status */}
       <div style={styles.statusBar}>{status}</div>
 
-      {/* XREAL Section */}
       <div style={styles.card}>
         <h2 style={styles.cardTitle}>XREAL Glasses</h2>
         <button
@@ -106,7 +120,6 @@ export default function Control() {
         )}
       </div>
 
-      {/* Video Section */}
       <div style={styles.card}>
         <h2 style={styles.cardTitle}>Video</h2>
         <button style={styles.btn} onClick={selectVideo}>
@@ -147,7 +160,6 @@ export default function Control() {
         )}
       </div>
 
-      {/* IMU Preview */}
       {connected && imuData && (
         <div style={styles.card}>
           <h2 style={styles.cardTitle}>IMU</h2>
@@ -161,7 +173,7 @@ Temp:  {imuData.temperature.toFixed(1)}°C
 
       <button
         style={styles.linkBtn}
-        onClick={() => window.location.hash = "calibrate"}
+        onClick={() => setShowMonitor(true)}
       >
         🔧 IMU Raw Monitor
       </button>
