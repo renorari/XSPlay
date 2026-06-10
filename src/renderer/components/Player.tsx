@@ -10,10 +10,10 @@ export default function Player({ initialVideoPath }: PlayerProps) {
   const [showHud, setShowHud] = useState(false);
 
   // Head tracking state (mutable refs for performance)
+  // NOTE: In SBS mode, horizontal movement causes left/right eye cross-talk.
+  // We only support vertical (pitch) tracking.
   const pitchRef = useRef(0);
-  const yawRef = useRef(0);
   const smoothPitchRef = useRef(0);
-  const smoothYawRef = useRef(0);
   const rafRef = useRef<number | null>(null);
 
   useEffect(() => {
@@ -48,27 +48,17 @@ export default function Player({ initialVideoPath }: PlayerProps) {
       const pitch = Math.atan2(-a.x, Math.sqrt(a.y * a.y + a.z * a.z));
       const roll = Math.atan2(a.y, a.z);
 
-      // We use pitch for vertical movement, roll for horizontal (since device orientation)
-      // But typically for head tracking:
-      // - Looking up/down = pitch
-      // - Looking left/right = we don't have yaw from accel alone
-      // So we use gyro Z for yaw (relative)
-      const gyro = data.gyroscope;
-      yawRef.current += gyro.z * 0.008; // simple integration with fixed dt
-
       pitchRef.current = pitch;
 
       // Smoothing
       const alpha = 0.08;
       smoothPitchRef.current += (pitchRef.current - smoothPitchRef.current) * alpha;
-      smoothYawRef.current += (yawRef.current - smoothYawRef.current) * alpha;
 
       // Apply transform
-      // Fixed mode: move video opposite to head rotation
-      const moveScaleX = 40; // px per rad
-      const moveScaleY = 30;
-      const tx = -smoothYawRef.current * moveScaleX;
-      const ty = -smoothPitchRef.current * moveScaleY;
+      // Fixed mode: when you look up (pitch+), video should move down (ty+)
+      // so that the image appears fixed in space.
+      const moveScaleY = 35;
+      const ty = smoothPitchRef.current * moveScaleY;
 
       const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v));
 
@@ -77,7 +67,7 @@ export default function Player({ initialVideoPath }: PlayerProps) {
         rafRef.current = null;
         const el = videoRef.current;
         if (!el) return;
-        el.style.transform = `translate(${clamp(tx, 80).toFixed(1)}px, ${clamp(ty, 60).toFixed(1)}px) scale(1.15)`;
+        el.style.transform = `translate(0px, ${clamp(ty, 80).toFixed(1)}px) scale(1.15)`;
       });
     });
 
