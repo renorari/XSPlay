@@ -1,23 +1,13 @@
-import { useState, useEffect } from "react";
-import Main from "./components/Main";
+import Control from "./components/Control";
 import Player from "./components/Player";
-import Calibrate from "./components/Calibrate";
+
+const params = new URLSearchParams(window.location.search);
+const mode = params.get("mode");
+const videoPath = params.get("video") || undefined;
 
 export default function App() {
-  const [route, setRoute] = useState(() => window.location.hash.slice(1) || "/");
-
-  useEffect(() => {
-    const onHashChange = () => setRoute(window.location.hash.slice(1) || "/");
-    window.addEventListener("hashchange", onHashChange);
-    return () => window.removeEventListener("hashchange", onHashChange);
-  }, []);
-
-  if (route === "player") {
-    return <Player />;
+  if (mode === "player") {
+    return <Player initialVideoPath={videoPath} />;
   }
-  if (route === "calibrate") {
-    return <Calibrate />;
-  }
-
-  return <Main />;
+  return <Control />;
 }
