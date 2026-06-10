@@ -9,15 +9,7 @@ export default function Player({ initialVideoPath }: PlayerProps) {
   const [videoPath, setVideoPath] = useState<string | undefined>(initialVideoPath);
   const [showHud, setShowHud] = useState(false);
 
-  // Head tracking state (mutable refs for performance)
-  // NOTE: In SBS mode, horizontal movement causes left/right eye cross-talk.
-  // We only support vertical (pitch) tracking.
-  const pitchRef = useRef(0);
-  const smoothPitchRef = useRef(0);
-  const rafRef = useRef<number | null>(null);
-
   useEffect(() => {
-    // Get video from query param if not passed as prop
     if (!videoPath) {
       const params = new URLSearchParams(window.location.search);
       const v = params.get("video");
@@ -35,63 +27,6 @@ export default function Player({ initialVideoPath }: PlayerProps) {
     }
   }, [videoPath]);
 
-  // IMU handling
-  useEffect(() => {
-    const unsub = window.electronAPI.xreal.onIMU((data) => {
-      if (!data?.accelerometer) return;
-
-      const a = data.accelerometer;
-
-      // Calculate pitch/roll from accelerometer (gravity direction)
-      // pitch = atan2(-ax, sqrt(ay^2 + az^2))
-      // roll = atan2(ay, az)
-      const pitch = Math.atan2(-a.x, Math.sqrt(a.y * a.y + a.z * a.z));
-      const roll = Math.atan2(a.y, a.z);
-
-      pitchRef.current = pitch;
-
-      // Smoothing
-      const alpha = 0.08;
-      smoothPitchRef.current += (pitchRef.current - smoothPitchRef.current) * alpha;
-
-      // Apply transform
-      // Fixed mode: when you look up (pitch+), video should move down (ty+)
-      // so that the image appears fixed in space.
-      const moveScaleY = 35;
-      const ty = smoothPitchRef.current * moveScaleY;
-
-      const clamp = (v: number, lim: number) => Math.max(-lim, Math.min(lim, v));
-
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-      rafRef.current = requestAnimationFrame(() => {
-        rafRef.current = null;
-        const el = videoRef.current;
-        if (!el) return;
-        el.style.transform = `translate(0px, ${clamp(ty, 80).toFixed(1)}px) scale(1.15)`;
-      });
-    });
-
-    return () => {
-      unsub();
-      if (rafRef.current) cancelAnimationFrame(rafRef.current);
-    };
-  }, []);
-
-  // Mouse activity detection for HUD
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    const onMove = () => {
-      setShowHud(true);
-      clearTimeout(timer);
-      timer = setTimeout(() => setShowHud(false), 3000);
-    };
-    window.addEventListener("mousemove", onMove);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      clearTimeout(timer);
-    };
-  }, []);
-
   // Player commands from control window
   useEffect(() => {
     const unsub = window.electronAPI.player.onCommand((cmd, val) => {
@@ -107,6 +42,21 @@ export default function Player({ initialVideoPath }: PlayerProps) {
       }
     });
     return unsub;
+  }, []);
+
+  // Mouse activity detection for HUD
+  useEffect(() => {
+    let timer: NodeJS.Timeout;
+    const onMove = () => {
+      setShowHud(true);
+      clearTimeout(timer);
+      timer = setTimeout(() => setShowHud(false), 3000);
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      clearTimeout(timer);
+    };
   }, []);
 
   return (
@@ -149,7 +99,6 @@ const styles: Record<string, React.CSSProperties> = {
     width: "100%",
     height: "100%",
     objectFit: "cover",
-    willChange: "transform",
   },
   hud: {
     position: "absolute",
