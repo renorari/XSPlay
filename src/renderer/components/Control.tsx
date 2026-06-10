@@ -161,7 +161,7 @@ Temp:  {imuData.temperature.toFixed(1)}°C
 
       <button
         style={styles.linkBtn}
-        onClick={() => window.location.href = "?mode=calibrate"}
+        onClick={() => window.location.hash = "calibrate"}
       >
         🔧 IMU Raw Monitor
       </button>
