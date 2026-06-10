@@ -1,6 +1,7 @@
 import { useState, useEffect } from "react";
 import Main from "./components/Main";
 import Player from "./components/Player";
+import Calibrate from "./components/Calibrate";
 
 export default function App() {
   const [route, setRoute] = useState(() => window.location.hash.slice(1) || "/");
@@ -13,6 +14,9 @@ export default function App() {
 
   if (route === "player") {
     return <Player />;
+  }
+  if (route === "calibrate") {
+    return <Calibrate />;
   }
 
   return <Main />;

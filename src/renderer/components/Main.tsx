@@ -87,8 +87,15 @@ export default function Main() {
 
   return (
     <div style={styles.container}>
-      <h1 style={styles.title}>XSPlay</h1>
-      <p style={styles.subtitle}>XREAL Air SBS Video Player</p>
+      <div style={styles.headerRow}>
+        <div>
+          <h1 style={styles.title}>XSPlay</h1>
+          <p style={styles.subtitle}>XREAL Air SBS Video Player</p>
+        </div>
+        <button style={styles.btnSmall} onClick={() => window.location.hash = "calibrate"}>
+          🔧 Calibrate IMU
+        </button>
+      </div>
 
       <div style={styles.section}>
         <h2 style={styles.sectionTitle}>XREAL Glasses</h2>
@@ -201,6 +208,12 @@ const styles: Record<string, React.CSSProperties> = {
     fontFamily: "system-ui, -apple-system, sans-serif",
     maxWidth: 640,
     margin: "0 auto",
+  },
+  headerRow: {
+    display: "flex",
+    justifyContent: "space-between",
+    alignItems: "flex-start",
+    marginBottom: 24,
   },
   title: {
     fontSize: 36,

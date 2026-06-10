@@ -1,27 +1,22 @@
-import { useState, useEffect, useRef, useCallback } from "react";
-
-interface EulerAngles {
-  yaw: number;
-  pitch: number;
-  roll: number;
-}
+import { useState, useEffect, useRef } from "react";
+import { useIMU } from "../hooks/useIMU";
 
 export default function Player() {
   const videoRef = useRef<HTMLVideoElement>(null);
+  const videoStyleRef = useRef<HTMLVideoElement | null>(null);
   const [videoPath, setVideoPath] = useState<string | null>(null);
-  const [imuData, setImuData] = useState<any>(null);
   const [showHud, setShowHud] = useState(true);
-  const [trackMode, setTrackMode] = useState<"fixed" | "smooth">("fixed");
-  const [smoothing, setSmoothing] = useState(0.1);
-  const [scale, setScale] = useState(1.2);
-  const imuUnsubRef = useRef<(() => void) | null>(null);
-
-  // Head tracking state
-  const eulerRef = useRef<EulerAngles>({ yaw: 0, pitch: 0, roll: 0 });
-  const smoothedEulerRef = useRef<EulerAngles>({ yaw: 0, pitch: 0, roll: 0 });
-  const lastTsRef = useRef<bigint | null>(null);
-  const transformRef = useRef<string>("");
-  const [transform, setTransform] = useState("");
+  const {
+    connected,
+    imuRaw,
+    euler,
+    transform,
+    config,
+    connect,
+    disconnect,
+    reset,
+    updateConfig,
+  } = useIMU();
 
   useEffect(() => {
     const path = localStorage.getItem("xsplay:videoPath");
@@ -31,65 +26,22 @@ export default function Player() {
       if (videoRef.current) {
         videoRef.current.src = url;
         videoRef.current.play().catch(() => {});
+        videoStyleRef.current = videoRef.current;
       }
     }
-
-    imuUnsubRef.current = window.electronAPI.xreal.onIMU((data) => {
-      setImuData(data);
-      updateHeadTracking(data);
-    });
-
+    // Auto-connect XREAL on player open
+    connect();
     return () => {
-      if (imuUnsubRef.current) {
-        imuUnsubRef.current();
-      }
+      disconnect();
     };
-  }, []);
+  }, [connect, disconnect]);
 
-  const updateHeadTracking = useCallback((data: any) => {
-    if (!data || !data.gyroscope || !data.timestamp) return;
-
-    const gyro = data.gyroscope;
-    const ts = data.timestamp;
-
-    if (lastTsRef.current !== null) {
-      const dt = Number(ts - lastTsRef.current) / 1e9; // nanoseconds to seconds
-      if (dt > 0 && dt < 0.1) {
-        // Integrate gyro to get relative rotation
-        eulerRef.current.yaw += gyro.z * dt;
-        eulerRef.current.pitch += gyro.x * dt;
-        eulerRef.current.roll += gyro.y * dt;
-      }
-    }
-    lastTsRef.current = ts;
-
-    // Smoothing
-    const alpha = smoothing;
-    smoothedEulerRef.current.yaw += (eulerRef.current.yaw - smoothedEulerRef.current.yaw) * alpha;
-    smoothedEulerRef.current.pitch += (eulerRef.current.pitch - smoothedEulerRef.current.pitch) * alpha;
-    smoothedEulerRef.current.roll += (eulerRef.current.roll - smoothedEulerRef.current.roll) * alpha;
-
-    // Calculate translation
-    // Fixed mode: inverse rotation -> translate video to cancel head movement
-    const tx = -smoothedEulerRef.current.yaw * 400; // scale factor
-    const ty = -smoothedEulerRef.current.pitch * 300;
-    const tr = -smoothedEulerRef.current.roll * (180 / Math.PI);
-
-    const clamp = (val: number, min: number, max: number) => Math.max(min, Math.min(max, val));
-    const ctx = clamp(tx, -300, 300);
-    const cty = clamp(ty, -200, 200);
-
-    const t = `translate(${ctx}px, ${cty}px) rotate(${tr}deg) scale(${scale})`;
-    transformRef.current = t;
-    setTransform(t);
-  }, [smoothing, scale]);
-
-  const resetTracking = () => {
-    eulerRef.current = { yaw: 0, pitch: 0, roll: 0 };
-    smoothedEulerRef.current = { yaw: 0, pitch: 0, roll: 0 };
-    lastTsRef.current = null;
-    setTransform(`scale(${scale})`);
-  };
+  // Apply transform directly to DOM for performance
+  useEffect(() => {
+    const el = videoStyleRef.current;
+    if (!el) return;
+    el.style.transform = transform || `scale(${config.yawScale > 0 ? 1.15 : 1})`;
+  }, [transform, config.yawScale]);
 
   // Auto-hide HUD
   const [mouseActive, setMouseActive] = useState(true);
@@ -125,11 +77,13 @@ export default function Player() {
     <div style={styles.container} onDoubleClick={togglePlay}>
       <div style={styles.videoWrapper}>
         <video
-          ref={videoRef}
+          ref={(el) => {
+            videoRef.current = el;
+            if (el) videoStyleRef.current = el;
+          }}
           style={{
             ...styles.video,
-            transform: transform || `scale(${scale})`,
-            transition: trackMode === "smooth" ? "transform 0.05s linear" : "none",
+            transform: `scale(${1.15})`,
           }}
           muted
           loop
@@ -152,63 +106,133 @@ export default function Player() {
 
           <div style={styles.controlPanel}>
             <div style={styles.controlRow}>
-              <span>Track Mode</span>
+              <span>Yaw</span>
               <select
-                style={styles.select}
-                value={trackMode}
-                onChange={(e) => setTrackMode(e.target.value as any)}
+                style={styles.selectSmall}
+                value={config.yawSource}
+                onChange={(e) => updateConfig({ yawSource: e.target.value as any })}
               >
-                <option value="fixed">Fixed (inverse)</option>
-                <option value="smooth">Smooth follow</option>
+                <option value="none">None</option>
+                <option value="x">Gyro X</option>
+                <option value="y">Gyro Y</option>
+                <option value="z">Gyro Z</option>
               </select>
-            </div>
-            <div style={styles.controlRow}>
-              <span>Smoothing</span>
+              <select
+                style={styles.selectSmall}
+                value={config.yawSign}
+                onChange={(e) => updateConfig({ yawSign: parseInt(e.target.value) as 1 | -1 })}
+              >
+                <option value={1}>+</option>
+                <option value={-1}>-</option>
+              </select>
               <input
                 type="range"
-                min={0.01}
-                max={1}
-                step={0.01}
-                value={smoothing}
-                onChange={(e) => setSmoothing(parseFloat(e.target.value))}
+                min={0}
+                max={200}
+                step={1}
+                value={config.yawScale}
+                onChange={(e) => updateConfig({ yawScale: parseInt(e.target.value) })}
                 style={styles.slider}
               />
-              <span style={styles.val}>{smoothing.toFixed(2)}</span>
+              <span style={styles.val}>{config.yawScale}</span>
             </div>
             <div style={styles.controlRow}>
-              <span>Scale</span>
+              <span>Pitch</span>
+              <select
+                style={styles.selectSmall}
+                value={config.pitchSource}
+                onChange={(e) => updateConfig({ pitchSource: e.target.value as any })}
+              >
+                <option value="none">None</option>
+                <option value="x">Gyro X</option>
+                <option value="y">Gyro Y</option>
+                <option value="z">Gyro Z</option>
+              </select>
+              <select
+                style={styles.selectSmall}
+                value={config.pitchSign}
+                onChange={(e) => updateConfig({ pitchSign: parseInt(e.target.value) as 1 | -1 })}
+              >
+                <option value={1}>+</option>
+                <option value={-1}>-</option>
+              </select>
               <input
                 type="range"
-                min={1}
-                max={2}
-                step={0.05}
-                value={scale}
-                onChange={(e) => setScale(parseFloat(e.target.value))}
+                min={0}
+                max={200}
+                step={1}
+                value={config.pitchScale}
+                onChange={(e) => updateConfig({ pitchScale: parseInt(e.target.value) })}
                 style={styles.slider}
               />
-              <span style={styles.val}>{scale.toFixed(2)}x</span>
+              <span style={styles.val}>{config.pitchScale}</span>
             </div>
-            <button style={styles.hudBtn} onClick={resetTracking}>
-              ↺ Reset
-            </button>
+            <div style={styles.controlRow}>
+              <span>Roll</span>
+              <select
+                style={styles.selectSmall}
+                value={config.rollSource}
+                onChange={(e) => updateConfig({ rollSource: e.target.value as any })}
+              >
+                <option value="none">None</option>
+                <option value="x">Gyro X</option>
+                <option value="y">Gyro Y</option>
+                <option value="z">Gyro Z</option>
+              </select>
+              <select
+                style={styles.selectSmall}
+                value={config.rollSign}
+                onChange={(e) => updateConfig({ rollSign: parseInt(e.target.value) as 1 | -1 })}
+              >
+                <option value={1}>+</option>
+                <option value={-1}>-</option>
+              </select>
+              <input
+                type="range"
+                min={0}
+                max={200}
+                step={1}
+                value={config.rollScale}
+                onChange={(e) => updateConfig({ rollScale: parseInt(e.target.value) })}
+                style={styles.slider}
+              />
+              <span style={styles.val}>{config.rollScale}</span>
+            </div>
+            <div style={styles.controlRow}>
+              <span>Deadzone</span>
+              <input
+                type="range"
+                min={0}
+                max={0.2}
+                step={0.005}
+                value={config.deadzone}
+                onChange={(e) => updateConfig({ deadzone: parseFloat(e.target.value) })}
+                style={styles.slider}
+              />
+              <span style={styles.val}>{config.deadzone.toFixed(3)}</span>
+            </div>
+            <div style={styles.row}>
+              <button style={styles.hudBtn} onClick={reset}>↺ Reset</button>
+              <button style={styles.hudBtn} onClick={() => window.location.hash = "calibrate"}>🔧 Full Calibrate</button>
+            </div>
           </div>
 
-          {imuData && (
+          {imuRaw && (
             <div style={styles.imuPanel}>
               <div style={styles.imuRow}>
                 <span>Gyro</span>
                 <span>
-                  {imuData.gyroscope.x.toFixed(1)} {" "}
-                  {imuData.gyroscope.y.toFixed(1)} {" "}
-                  {imuData.gyroscope.z.toFixed(1)}
+                  {imuRaw.gyroscope.x.toFixed(1)}{" "}
+                  {imuRaw.gyroscope.y.toFixed(1)}{" "}
+                  {imuRaw.gyroscope.z.toFixed(1)}
                 </span>
               </div>
               <div style={styles.imuRow}>
                 <span>Euler</span>
                 <span>
-                  Y{(smoothedEulerRef.current.yaw * (180 / Math.PI)).toFixed(0)}°{" "}
-                  P{(smoothedEulerRef.current.pitch * (180 / Math.PI)).toFixed(0)}°{" "}
-                  R{(smoothedEulerRef.current.roll * (180 / Math.PI)).toFixed(0)}°
+                  Y{(euler.yaw * (180 / Math.PI)).toFixed(0)}°{" "}
+                  P{(euler.pitch * (180 / Math.PI)).toFixed(0)}°{" "}
+                  R{(euler.roll * (180 / Math.PI)).toFixed(0)}°
                 </span>
               </div>
             </div>
@@ -249,6 +273,7 @@ const styles: Record<string, React.CSSProperties> = {
     height: "100%",
     objectFit: "cover",
     willChange: "transform",
+    transition: "none",
   },
   hud: {
     position: "absolute",
@@ -291,7 +316,7 @@ const styles: Record<string, React.CSSProperties> = {
     padding: 12,
     fontSize: 12,
     color: "#fff",
-    maxWidth: 320,
+    maxWidth: 420,
     pointerEvents: "auto",
     display: "flex",
     flexDirection: "column",
@@ -303,21 +328,29 @@ const styles: Record<string, React.CSSProperties> = {
     justifyContent: "space-between",
     gap: 8,
   },
-  select: {
+  row: {
+    display: "flex",
+    gap: 8,
+    pointerEvents: "auto",
+  },
+  selectSmall: {
     background: "#222",
     color: "#fff",
     border: "1px solid #444",
     borderRadius: 4,
-    padding: "4px 8px",
+    padding: "4px",
     fontSize: 12,
+    width: 70,
   },
   slider: {
     flex: 1,
+    minWidth: 60,
   },
   val: {
-    width: 40,
+    width: 36,
     textAlign: "right",
     fontVariantNumeric: "tabular-nums",
+    fontSize: 12,
   },
   imuPanel: {
     background: "rgba(0,0,0,0.6)",
